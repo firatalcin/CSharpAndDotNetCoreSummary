@@ -1,6 +1,8 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
 using OrderAPI.Contracts;
 using OrderAPI.Models;
+using OrderAPI.Services;
 
 namespace OrderAPI.Controllers;
 
@@ -8,69 +10,69 @@ namespace OrderAPI.Controllers;
 [Route("api/[controller]")]
 public class OrdersController : ControllerBase
 {
-    private static readonly List<Order> _orders = new();
+    private readonly IOrderService _orderService;
+    private readonly IValidator<CreateOrderRequest> _createOrderValidator;
 
+    public OrdersController(IOrderService orderService, IValidator<CreateOrderRequest> createOrderValidator)
+    {
+        _orderService = orderService;
+        _createOrderValidator = createOrderValidator;
+    }
+    
     [HttpPost]
     [ProducesResponseType(typeof(OrderResponse), StatusCodes.Status201Created)]
-    public ActionResult<OrderResponse> CreateOrder([FromBody] CreateOrderRequest request)
+    [ProducesResponseType(typeof(ValidationProblemDetails),StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<ActionResult<OrderResponse>> CreateOrder([FromBody] CreateOrderRequest request, CancellationToken cancellationToken)
     {
-        var orderItems = request.Items.Select(item => new OrderItem()
-        {
-            ProductId = item.ProductId,
-            ProductName = item.ProductName,
-            Quantity = item.Quantity,
-            UnitPrice = item.UnitPrice
-        }).ToList();
+        var validationResult = await _createOrderValidator.ValidateAsync(request, cancellationToken);
 
-        var totalAmount = orderItems.Sum(x => x.Quantity * x.UnitPrice);
-        
-        var newOrder = new Order
+        if (!validationResult.IsValid)
         {
-            Id = Guid.NewGuid(),
-            CustomerId = request.CustomerId,
-            OrderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}",
-            Status = OrderStatus.Pending,
-            TotalAmount = totalAmount,
-            CreatedAt = DateTime.UtcNow,
-            Items = orderItems
-        };
+            foreach (var error in validationResult.Errors)
+            {
+                ModelState.AddModelError(error.PropertyName, error.ErrorMessage);
+            }
 
-        _orders.Add(newOrder);
+            return ValidationProblem(ModelState); // 400 Bad Request
+        }
         
-        var response = MapToResponse(newOrder);
+        var response = await _orderService.CreateAsync(request, cancellationToken);
 
         return CreatedAtAction(
             actionName: nameof(GetOrderById),
-            routeValues: new { id = newOrder.Id },
+            routeValues: new { id = response.Id },
             value: response);
-
     }
     
     // GET /api/orders/{id:guid}
     [HttpGet("{id:guid}")]
     [ProducesResponseType(typeof(OrderResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<OrderResponse> GetOrderById(Guid id)
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<OrderResponse>> GetOrderById(Guid id, CancellationToken cancellationToken)
     {
-        var order = _orders.FirstOrDefault(o => o.Id == id);
-
-        if (order is null)
-        {
-            return NotFound(); // 404 Not Found
-        }
-
-        return Ok(MapToResponse(order)); // 200 OK
+        var response = await _orderService.GetByIdAsync(id, cancellationToken);
+        return Ok(response);
     }
     
     // GET /api/orders
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<OrderResponse>), StatusCodes.Status200OK)]
-    public ActionResult<IEnumerable<OrderResponse>> GetOrders()
+    public async Task<ActionResult<List<OrderResponse>>> GetOrders(CancellationToken  cancellationToken)
     {
-        var responseList = _orders.Select(MapToResponse).ToList();
-        return Ok(responseList); // 200 OK
+        var response = await _orderService.GetAllAsync(cancellationToken);
+        return Ok(response);
     }
     
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CancelOrder(Guid id, CancellationToken cancellationToken)
+    {
+        await _orderService.CancelAsync(id, cancellationToken);
+        return NoContent();
+    }
     
     // Yardımcı (Helper) Mapping Metodu
     private static OrderResponse MapToResponse(Order order)
