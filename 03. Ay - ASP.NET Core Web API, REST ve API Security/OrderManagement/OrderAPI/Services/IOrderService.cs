@@ -6,6 +6,6 @@ public interface IOrderService
 {
     Task<OrderResponse> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken);
     Task<OrderResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken);
-    Task<List<OrderResponse>> GetAllAsync(CancellationToken cancellationToken);
+    Task<PagedResponse<OrderResponse>> GetPagedAsync(OrderQueryParameters parameters, CancellationToken cancellationToken);
     Task CancelAsync(Guid id, CancellationToken cancellationToken);
 }

@@ -1,4 +1,6 @@
-﻿using FluentValidation;
+﻿using Asp.Versioning;
+using FluentValidation;
+using FluentValidation.Results;
 using Microsoft.AspNetCore.Mvc;
 using OrderAPI.Contracts;
 using OrderAPI.Models;
@@ -7,16 +9,19 @@ using OrderAPI.Services;
 namespace OrderAPI.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/[controller]")]
 public class OrdersController : ControllerBase
 {
     private readonly IOrderService _orderService;
     private readonly IValidator<CreateOrderRequest> _createOrderValidator;
+    private readonly IValidator<OrderQueryParameters> _queryValidator;
 
-    public OrdersController(IOrderService orderService, IValidator<CreateOrderRequest> createOrderValidator)
+    public OrdersController(IOrderService orderService, IValidator<CreateOrderRequest> createOrderValidator, IValidator<OrderQueryParameters> queryValidator)
     {
         _orderService = orderService;
         _createOrderValidator = createOrderValidator;
+        _queryValidator = queryValidator;
     }
     
     [HttpPost]
@@ -29,12 +34,7 @@ public class OrdersController : ControllerBase
 
         if (!validationResult.IsValid)
         {
-            foreach (var error in validationResult.Errors)
-            {
-                ModelState.AddModelError(error.PropertyName, error.ErrorMessage);
-            }
-
-            return ValidationProblem(ModelState); // 400 Bad Request
+            return ToValidationProblem(validationResult); // 400
         }
         
         var response = await _orderService.CreateAsync(request, cancellationToken);
@@ -57,10 +57,17 @@ public class OrdersController : ControllerBase
     
     // GET /api/orders
     [HttpGet]
-    [ProducesResponseType(typeof(IEnumerable<OrderResponse>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<List<OrderResponse>>> GetOrders(CancellationToken  cancellationToken)
+    [ProducesResponseType(typeof(PagedResponse<OrderResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<PagedResponse<OrderResponse>>> GetOrders([FromQuery] OrderQueryParameters parameters, CancellationToken  cancellationToken)
     {
-        var response = await _orderService.GetAllAsync(cancellationToken);
+        var validationResult = await _queryValidator.ValidateAsync(parameters, cancellationToken);
+        if (!validationResult.IsValid)
+        {
+            return ToValidationProblem(validationResult); // 400 (ör: sortBy=hackedField)
+        }
+        
+        var response = await _orderService.GetPagedAsync(parameters, cancellationToken);
         return Ok(response);
     }
     
@@ -74,24 +81,14 @@ public class OrdersController : ControllerBase
         return NoContent();
     }
     
-    // Yardımcı (Helper) Mapping Metodu
-    private static OrderResponse MapToResponse(Order order)
+    // FluentValidation hatalarını standart 400 ValidationProblemDetails'e çevirir
+    private ActionResult ToValidationProblem(ValidationResult validationResult)
     {
-        var itemDtos = order.Items.Select(i => new OrderItemDto(
-            i.ProductId,
-            i.ProductName,
-            i.Quantity,
-            i.UnitPrice
-        )).ToList();
+        foreach (var error in validationResult.Errors)
+        {
+            ModelState.AddModelError(error.PropertyName, error.ErrorMessage);
+        }
 
-        return new OrderResponse(
-            order.Id,
-            order.CustomerId,
-            order.OrderNumber,
-            order.Status,
-            order.TotalAmount,
-            order.CreatedAt,
-            itemDtos
-        );
+        return ValidationProblem(ModelState);
     }
 }

@@ -11,17 +11,23 @@ public class OrderService : IOrderService
 {
     private readonly IOrderRepository _repository;
     private readonly OrderSettings _settings;
+    private readonly ILogger<OrderService> _logger;
 
-    public OrderService(IOrderRepository repository, IOptions<OrderSettings> options)
+    public OrderService(IOrderRepository repository, IOptions<OrderSettings> options, ILogger<OrderService> logger)
     {
         _repository = repository;
         _settings = options.Value;
+        _logger = logger;
     }
     
     public async Task<OrderResponse> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken)
     {
         if (request.Items.Count > _settings.MaxItemsPerOrder)
         {
+            _logger.LogWarning(
+                "İş kuralı ihlali: Kalem sayısı limiti aşıldı. CustomerId: {CustomerId}, ItemCount: {ItemCount}, MaxItems: {MaxItems}",
+                request.CustomerId, request.Items.Count, _settings.MaxItemsPerOrder);
+
             throw new BusinessRuleException($"Bir sipariş en fazla {_settings.MaxItemsPerOrder} kalem olabilir.");
         }
         
@@ -37,6 +43,10 @@ public class OrderService : IOrderService
         
         if (totalAmount < _settings.MinOrderAmount)
         {
+            _logger.LogWarning(
+                "İş kuralı ihlali: Minimum tutar altında sipariş. CustomerId: {CustomerId}, TotalAmount: {TotalAmount}, MinOrderAmount: {MinOrderAmount}",
+                request.CustomerId, totalAmount, _settings.MinOrderAmount);
+
             throw new BusinessRuleException(
                 $"Sipariş tutarı en az {_settings.MinOrderAmount} TL olmalıdır. Mevcut tutar: {totalAmount} TL.");
         }
@@ -53,6 +63,10 @@ public class OrderService : IOrderService
         };
 
         await _repository.AddAsync(newOrder, cancellationToken);
+        
+        _logger.LogInformation(
+            "Sipariş oluşturuldu. OrderId: {OrderId}, OrderNumber: {OrderNumber}, CustomerId: {CustomerId}, TotalAmount: {TotalAmount}",
+            newOrder.Id, newOrder.OrderNumber, newOrder.CustomerId, newOrder.TotalAmount);
 
         return MapToResponse(newOrder);
     }
@@ -69,11 +83,14 @@ public class OrderService : IOrderService
         return MapToResponse(order);
     }
 
-    public async Task<List<OrderResponse>> GetAllAsync(CancellationToken cancellationToken)
+    public async Task<PagedResponse<OrderResponse>> GetPagedAsync(OrderQueryParameters parameters, CancellationToken cancellationToken)
     {
-        var orders = await _repository.GetAllAsync(cancellationToken);
+        // Tuple'ı iki ayrı değişkene açıyoruz (deconstruction)
+        var (orders, totalCount) = await _repository.GetPagedAsync(parameters, cancellationToken);
 
-        return orders.Select(MapToResponse).ToList();
+        var items = orders.Select(MapToResponse).ToList();
+        
+        return new PagedResponse<OrderResponse>(items, parameters.PageNumber, parameters.PageSize, totalCount);
     }
 
     public async Task CancelAsync(Guid id, CancellationToken cancellationToken)
@@ -87,12 +104,20 @@ public class OrderService : IOrderService
 
         if (order.Status == OrderStatus.Shipped)
         {
+            _logger.LogWarning(
+                "İş kuralı ihlali: Kargodaki sipariş iptal edilmek istendi. OrderId: {OrderId}, Status: {Status}",
+                order.Id, order.Status);
+            
             throw new BusinessRuleException(
                 "Kargoya verilmiş bir sipariş iptal edilemez.",
                 StatusCodes.Status409Conflict);
         }
         
         order.Status = OrderStatus.Cancelled;
+        
+        _logger.LogInformation(
+            "Sipariş iptal edildi. OrderId: {OrderId}, CustomerId: {CustomerId}",
+            order.Id, order.CustomerId);
     }
     
     private static OrderResponse MapToResponse(Order order)
