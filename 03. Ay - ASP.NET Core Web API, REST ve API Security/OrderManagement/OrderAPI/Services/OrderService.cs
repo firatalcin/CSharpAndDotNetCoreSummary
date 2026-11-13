@@ -20,13 +20,13 @@ public class OrderService : IOrderService
         _logger = logger;
     }
     
-    public async Task<OrderResponse> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken)
+    public async Task<OrderResponse> CreateAsync(Guid customerId, CreateOrderRequest request, CancellationToken cancellationToken)
     {
         if (request.Items.Count > _settings.MaxItemsPerOrder)
         {
             _logger.LogWarning(
                 "İş kuralı ihlali: Kalem sayısı limiti aşıldı. CustomerId: {CustomerId}, ItemCount: {ItemCount}, MaxItems: {MaxItems}",
-                request.CustomerId, request.Items.Count, _settings.MaxItemsPerOrder);
+                customerId, request.Items.Count, _settings.MaxItemsPerOrder);
 
             throw new BusinessRuleException($"Bir sipariş en fazla {_settings.MaxItemsPerOrder} kalem olabilir.");
         }
@@ -45,7 +45,7 @@ public class OrderService : IOrderService
         {
             _logger.LogWarning(
                 "İş kuralı ihlali: Minimum tutar altında sipariş. CustomerId: {CustomerId}, TotalAmount: {TotalAmount}, MinOrderAmount: {MinOrderAmount}",
-                request.CustomerId, totalAmount, _settings.MinOrderAmount);
+                customerId, totalAmount, _settings.MinOrderAmount);
 
             throw new BusinessRuleException(
                 $"Sipariş tutarı en az {_settings.MinOrderAmount} TL olmalıdır. Mevcut tutar: {totalAmount} TL.");
@@ -54,7 +54,7 @@ public class OrderService : IOrderService
         var newOrder = new Order
         {
             Id = Guid.NewGuid(),
-            CustomerId = request.CustomerId,
+            CustomerId = customerId,
             OrderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}",
             Status = OrderStatus.Pending,
             TotalAmount = totalAmount,
@@ -83,13 +83,12 @@ public class OrderService : IOrderService
         return MapToResponse(order);
     }
 
-    public async Task<PagedResponse<OrderResponse>> GetPagedAsync(OrderQueryParameters parameters, CancellationToken cancellationToken)
+    public async Task<PagedResponse<OrderResponse>> GetPagedAsync(OrderQueryParameters parameters, Guid? customerId, CancellationToken cancellationToken)
     {
-        // Tuple'ı iki ayrı değişkene açıyoruz (deconstruction)
-        var (orders, totalCount) = await _repository.GetPagedAsync(parameters, cancellationToken);
+        var (orders, totalCount) = await _repository.GetPagedAsync(parameters, customerId, cancellationToken);
 
         var items = orders.Select(MapToResponse).ToList();
-        
+
         return new PagedResponse<OrderResponse>(items, parameters.PageNumber, parameters.PageSize, totalCount);
     }
 
@@ -118,6 +117,23 @@ public class OrderService : IOrderService
         _logger.LogInformation(
             "Sipariş iptal edildi. OrderId: {OrderId}, CustomerId: {CustomerId}",
             order.Id, order.CustomerId);
+    }
+    
+    public async Task UpdateStatusAsync(Guid id, OrderStatus newStatus, CancellationToken cancellationToken)
+    {
+        var order = await _repository.GetByIdAsync(id, cancellationToken);
+
+        if (order is null)
+        {
+            throw new OrderNotFoundException(id); // GlobalExceptionHandler -> 404
+        }
+
+        var oldStatus = order.Status;
+        order.Status = newStatus;
+
+        _logger.LogInformation(
+            "Sipariş durumu güncellendi. OrderId: {OrderId}, OldStatus: {OldStatus}, NewStatus: {NewStatus}",
+            order.Id, oldStatus, newStatus);
     }
     
     private static OrderResponse MapToResponse(Order order)

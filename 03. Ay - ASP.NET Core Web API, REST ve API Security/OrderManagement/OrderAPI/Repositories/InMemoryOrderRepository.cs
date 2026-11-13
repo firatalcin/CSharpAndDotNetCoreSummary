@@ -19,10 +19,16 @@ public class InMemoryOrderRepository : IOrderRepository
         return Task.FromResult(order);
     }
 
-    public Task<(List<Order> Items, int TotalCount)> GetPagedAsync(OrderQueryParameters parameters, CancellationToken cancellationToken)
+    public Task<(List<Order> Items, int TotalCount)> GetPagedAsync(OrderQueryParameters parameters, Guid? customerId, CancellationToken cancellationToken)
     {
         IEnumerable<Order> query = _orders;
 
+        // 0) SAHİPLİK FİLTRESİ: customerId null ise (Admin) hepsini gör
+        if (customerId is not null)
+        {
+            query = query.Where(o => o.CustomerId == customerId);
+        }
+        
         // 1) FİLTRELEME (null ise hiç uygulanmaz)
         if (parameters.Status is not null)
         {
