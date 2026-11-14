@@ -38,7 +38,7 @@
 
 ![](https://img.shields.io/badge/OOP-239120?style=flat-square) ![](https://img.shields.io/badge/LINQ-239120?style=flat-square) ![](https://img.shields.io/badge/Dependency%20Injection-239120?style=flat-square) ![](https://img.shields.io/badge/Clean%20Code-239120?style=flat-square) ![](https://img.shields.io/badge/Git-239120?style=flat-square)
 
-📄 [Konu Özetleri](01.%20Ay%20-%20C%23%2C%20Modern%20.NET%20ve%20Developer%20Temeli/01-KonuOzetleri.md) &nbsp;•&nbsp; 📝 [Sertifika Sınavı](01.%20Ay%20-%20C%23%2C%20Modern%20.NET%20ve%20Developer%20Temeli/01-AY-SertifikaSinavi.md)
+📄 [Konu Özetleri](01.%20Ay%20-%20C%23%2C%20Modern%20.NET%20ve%20Developer%20Temeli/01.%20Ay%20-%20C%23%2C%20Modern%20.Net%20ve%20Developer%20Temeli.md) &nbsp;•&nbsp; 📝 [Sertifika Sınavı](01.%20Ay%20-%20C%23%2C%20Modern%20.NET%20ve%20Developer%20Temeli/01-AY-SertifikaSinavi.md)
 
 ---
 
@@ -75,7 +75,7 @@ HTTP ve REST semantiğinden başlayıp ASP.NET Core'un çekirdeğine iniyor: hos
 - **Pratik için:** Projeleri klonla, çalıştır ve testleri koştur:
 
 ```bash
-git clone https://github.com/firatalcin/CSharpAndDotNetCoreSummary.git
+git clone https://github.com/firatalcin/DotNetCoreDictionary.git
 ```
 
 ```bash
